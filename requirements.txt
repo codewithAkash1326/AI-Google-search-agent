@@ -1,0 +1,5 @@
+pydantic
+langchain-tavily
+langchain
+langchain-google-genai
+python-dotenv
