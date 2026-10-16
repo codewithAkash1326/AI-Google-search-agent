@@ -2,7 +2,6 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-import json
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_tavily import TavilySearch
 from pydantic import BaseModel, Field
@@ -59,18 +58,18 @@ while True:
 
          
         messages = [
-            ("system", SYSTEM_PROMPT),
-            (
-                "human",
-                f"""
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "human",
+                "content": f"""
                 User question: {query}
 
                 Web search results:
-                {json.dumps(search_results, ensure_ascii=False, default=str)}
+                {str(search_results)}
 
                 Answer the user's question using these results.
                 """
-            )
+            }
         ]
 
         
