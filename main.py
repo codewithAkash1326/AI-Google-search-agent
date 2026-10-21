@@ -1,44 +1,62 @@
-
 from dotenv import load_dotenv
-load_dotenv()
-
+from langchain.agents import create_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_tavily import TavilySearch
-from pydantic import BaseModel, Field
+from langgraph.checkpoint.memory import InMemorySaver
 
-
-class CustomResponse(BaseModel):
-    output: str = Field(
-        description="Answer based on the web search results, including relevant sources."
-    )
-
-
-
-search = TavilySearch(
-    max_results=5,
-    topic="general"
-)
-
-
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    temperature=0
-)
-
-structured_llm = llm.with_structured_output(CustomResponse)
+load_dotenv()
 
 
 SYSTEM_PROMPT = """
-You are a web research assistant.
+You are a helpful assistant. Think through whether the question needs current
+information before answering. Use the tavily_search tool whenever the user asks
+about real-world events, current or recent facts, frequently changing
+information, or information that may be newer than your training data. Always
+search for event results and outcomes for a named year or season (for example,
+the winner of IPL 2026). Do not guess that an event has not happened based on
+your training data; search for evidence first.
 
-Rules:
-1. Answer using the provided web search results.
-2. Prioritize recent and credible sources.
-3. Never invent facts or dates.
-4. If results are contradictory or insufficient, explain uncertainty.
-5. Include relevant source URLs in your answer.
-6. Do not claim something has not happened without evidence.
+For questions that do not need current information, answer directly without
+searching. When you search, base current claims on the results and cite relevant
+source URLs. If results are insufficient or contradictory, say so. Never invent
+facts, dates, or sources.
 """
+
+search = TavilySearch(
+    name="tavily_search",
+    description=(
+        "Search the web for current, recent, or frequently changing information, "
+        "including real-world event results and outcomes for a specific year."
+    ),
+    max_results=5,
+    topic="general",
+)
+
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    temperature=0,
+)
+
+agent = create_agent(
+    model=llm,
+    tools=[search],
+    system_prompt=SYSTEM_PROMPT,
+    checkpointer=InMemorySaver(),
+)
+
+config = {"configurable": {"thread_id": "cli-session"}}
+
+
+def plain_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            block["text"]
+            for block in content
+            if isinstance(block, dict) and isinstance(block.get("text"), str)
+        )
+    return str(content)
 
 
 while True:
@@ -51,32 +69,13 @@ while True:
         continue
 
     try:
-        
-        print("\nSearching Tavily...")
-
-        search_results = search.invoke({"query": query})
-
-         
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "human",
-                "content": f"""
-                User question: {query}
-
-                Web search results:
-                {str(search_results)}
-
-                Answer the user's question using these results.
-                """
-            }
-        ]
-
-        
-        response = structured_llm.invoke(messages)
+        response = agent.invoke(
+            {"messages": [{"role": "user", "content": query}]},
+            config=config,
+        )
 
         print("\nFinal Answer:")
-        print(response.output)
+        print(plain_text(response["messages"][-1].content))
 
     except Exception as e:
         print(f"Error processing query: {e}")
